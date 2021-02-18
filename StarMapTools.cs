@@ -43,7 +43,6 @@ namespace StarMapTools
             tpKey = Config.Bind<KeyCode>("config", "tp", KeyCode.F2, "传送按键").Value;
             var ab = AssetBundle.LoadFromStream(Assembly.GetExecutingAssembly().GetManifestResourceStream("StarMapTools.starmaptools"));
             prefab_StarMapToolsBasePanel = ab.LoadAsset<GameObject>("StarMapToolsBasePanel");
-            Debug.Log("潮汐锁定永昼永夜".Translate());
         }
         void Update()
         {
