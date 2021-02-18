@@ -8,7 +8,7 @@ using UnityEngine.UI;
 
 namespace StarMapTools
 {
-    [BepInPlugin("sky.plugins.dsp.StarMapTools", "StarMapTools", "2.0")]
+    [BepInPlugin("sky.plugins.dsp.StarMapTools", "StarMapTools", "3.0")]
     public class StarMapTools: BaseUnityPlugin
     {
         GameObject prefab_StarMapToolsBasePanel;//资源
@@ -26,8 +26,12 @@ namespace StarMapTools
         KeyCode tpKey;//tp的快捷键
         StarSearcher starSearcher = new StarSearcher();//恒星搜索器
         ScrollRect OptionsList;//选项列表
+        Toggle SearchNextToggle;//是否开启连续搜索
+        InputField DysonLuminoText;//最小光度输入框
+        InputField DistanceText;//最远距离输入框
         Dropdown ResultList;//查询结果(用于显示)
         Button SearchButton;//查询按钮
+        bool SearchNext=false;//是否刷新种子并搜索
         List<StarData> SerachResult;//查询结果
         static StarMapTools self;//this
         void Start()
@@ -39,6 +43,7 @@ namespace StarMapTools
             tpKey = Config.Bind<KeyCode>("config", "tp", KeyCode.F2, "传送按键").Value;
             var ab = AssetBundle.LoadFromStream(Assembly.GetExecutingAssembly().GetManifestResourceStream("StarMapTools.starmaptools"));
             prefab_StarMapToolsBasePanel = ab.LoadAsset<GameObject>("StarMapToolsBasePanel");
+            Debug.Log("潮汐锁定永昼永夜".Translate());
         }
         void Update()
         {
@@ -60,6 +65,11 @@ namespace StarMapTools
                     //判断是否处于新建游戏的状态
                     if (UIRoot.instance.galaxySelect.starmap.galaxyData != null)
                     {
+                        if (SearchNext)
+                        {
+                            LoadResAmount.isOn = false;
+                            UIRoot.instance.galaxySelect.Rerand();
+                        }
                         //更新数据
                         if (galaxy != UIRoot.instance.galaxySelect.starmap.galaxyData)
                         {
@@ -73,11 +83,16 @@ namespace StarMapTools
                             }
                             StarList.value = -1;
                             StarList.RefreshShownValue();
+                            if (SearchNext)
+                            {
+                                SearchButton.onClick.Invoke();
+                            }
                         }
                     }
                     //判断是否处于游戏中
                     else if (GameMain.galaxy != null)
                     {
+                        SearchNext = false;
                         //更新数据
                         if (galaxy != GameMain.galaxy)
                         {
@@ -112,6 +127,7 @@ namespace StarMapTools
                         PlanetList.ClearOptions();
                         ResultList.ClearOptions();
                         InfoText.text = "";
+                        SearchNext = false;
                     }
                     if (loadingStarData)
                     {
@@ -139,6 +155,9 @@ namespace StarMapTools
                 InfoText = ui_StarMapToolsBasePanel.transform.Find("InfoText").GetComponent<InputField>();
                 LoadResAmount= ui_StarMapToolsBasePanel.transform.Find("LoadResAmount").GetComponent<Toggle>();
                 OptionsList = ui_StarMapToolsBasePanel.transform.Find("OptionsList").GetComponent<ScrollRect>();
+                SearchNextToggle= ui_StarMapToolsBasePanel.transform.Find("SearchNextToggle").GetComponent<Toggle>();
+                DysonLuminoText = ui_StarMapToolsBasePanel.transform.Find("DysonLuminoText").GetComponent<InputField>();
+                DistanceText = ui_StarMapToolsBasePanel.transform.Find("DistanceText").GetComponent<InputField>();
                 ResultList = ui_StarMapToolsBasePanel.transform.Find("ResultList").GetComponent<Dropdown>();
                 SearchButton = ui_StarMapToolsBasePanel.transform.Find("SearchButton").GetComponent<Button>();
                 var TempToggle = OptionsList.content.Find("TempToggle").GetComponent<Toggle>();
@@ -275,12 +294,12 @@ namespace StarMapTools
                         info += "星球数量:" + star.planetCount + "\n";
                         info += "光度:" + star.dysonLumino.ToString() + "\n";
                         info += "距离初始星系恒星:" + ((star.uPosition - galaxy.StarById(1).uPosition).magnitude / 2400000.0).ToString()+"光年\n";
-                        info += "星球列表:" + "\n";
+                        info += "星球列表:";
                         foreach (PlanetData planet in star.planets)
                         {
-                            info += "    "+planet.typeString + "  " + planet.singularityString+"\n";
+                            info +="-"+planet.typeString + "  " + planet.singularityString;
                         }
-                        info += "矿物信息:" + "\n";
+                        info += "\n矿物信息:" + "\n";
                         for (int i = 0; i < LDB.veins.Length; i++)
                         {
                             var name = LDB.veins.dataArray[i].name;
@@ -316,9 +335,12 @@ namespace StarMapTools
                 });
                 //搜索事件
                 SearchButton.onClick.AddListener(delegate {
+                    SearchNext = false;
                     starSearcher.galaxyData = galaxy;
                     starSearcher.Clear();
-                    foreach(Toggle toggle in StarTypesToggleList)
+                    float.TryParse(DysonLuminoText.text == "" ? "0":DysonLuminoText.text, out starSearcher.dysonLumino);
+                    float.TryParse(DistanceText.text==""?"1000": DistanceText.text, out starSearcher.distance);
+                    foreach (Toggle toggle in StarTypesToggleList)
                     {
                         if (toggle.isOn)
                         {
@@ -358,6 +380,10 @@ namespace StarMapTools
                     }
                     ResultList.value = -1;
                     ResultList.RefreshShownValue();
+                    if (SerachResult.Count == 0 && SearchNextToggle.isOn)
+                    {
+                        SearchNext = true;
+                    }
                 });
                 //切换搜索结果事件
                 ResultList.onValueChanged.AddListener(delegate {
@@ -478,6 +504,8 @@ namespace StarMapTools
         public List<string> PlanteTypes = new List<string>();//搜索的星系中包含所有以下类型星球
         public List<string> SingularityTypes = new List<string>();//搜索的星系包含所有以下的词条
         public List<string> VeinTypes = new List<string>();//搜索的星系包含以下所有的矿物
+        public float dysonLumino;//搜索的恒星的光度需大于该值
+        public float distance;//搜索的恒星距离初始星系的距离需小于此值(单位光年)
         public List<string> AllStarTypes
         {
             get
@@ -551,7 +579,7 @@ namespace StarMapTools
             {
                 foreach(StarData star in galaxyData.stars)
                 {
-                    if (StarTypes.Contains(star.typeString))
+                    if (StarTypes.Contains(star.typeString) && star.dysonLumino>=dysonLumino && ((star.uPosition - galaxyData.StarById(1).uPosition).magnitude / 2400000.0)<=distance)
                     {
                         List<string> TempPlanteTypes = new List<string>();
                         List<string> TempSingularityTypes = new List<string>();
@@ -593,11 +621,8 @@ namespace StarMapTools
             PlanteTypes.Clear();
             SingularityTypes.Clear();
             VeinTypes.Clear();
+            dysonLumino = 0;
+            distance = 1000;
         }
-    }
-    //种子搜索器
-    class SeedSearcher
-    {
-
     }
 }
